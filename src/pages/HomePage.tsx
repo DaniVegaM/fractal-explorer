@@ -111,10 +111,12 @@ export default function HomePage() {
             fractalType: selectedFractal,
             iterations,
             zoom: renderParams.zoom || 1,
-            power: 2,
             centerX: renderCenter.x,
             centerY: renderCenter.y,
             palette: selectedPalette,
+            // Parámetros específicos de Julia
+            cReal: renderParams.cReal,
+            cImag: renderParams.cImag,
         });
     };
 
@@ -125,23 +127,7 @@ export default function HomePage() {
         }
         
         hiResTimeoutRef.current = window.setTimeout(() => {
-            if (selectedFractal === 'mandelbrot') {
-                renderToCanvas(renderParams, renderCenter, false);
-            } else {
-                const canvas = canvasRef.current;
-                if (!canvas) return;
-                const ctx = canvas.getContext("2d");
-                if (!ctx) return;
-                renderFractal({
-                    ctx,
-                    width: canvas.width,
-                    height: canvas.height,
-                    fractalType: selectedFractal,
-                    params: renderParams,
-                    center: renderCenter,
-                    palette: selectedPalette,
-                });
-            }
+            renderToCanvas(renderParams, renderCenter, false);
         }, 250);
     };
 
@@ -155,20 +141,8 @@ export default function HomePage() {
         canvas.width = canvas.clientWidth;
         canvas.height = canvas.clientHeight;
 
-        // Solo renderizar alta calidad directamente (sin preview de baja res)
-        if (selectedFractal === 'mandelbrot') {
-            renderToCanvas(params, center, false);
-        } else {
-            renderFractal({
-                ctx,
-                width: canvas.width,
-                height: canvas.height,
-                fractalType: selectedFractal,
-                params,
-                center,
-                palette: selectedPalette,
-            });
-        }
+        // Renderizar alta calidad directamente
+        renderToCanvas(params, center, false);
 
         return () => {
             if (hiResTimeoutRef.current) {
@@ -259,7 +233,9 @@ export default function HomePage() {
         const dx = e.clientX - lastMousePos.current.x;
         const dy = e.clientY - lastMousePos.current.y;
 
-        const scale = 1.0 / (canvas.width * 0.5 * (params.zoom || 1));
+        // Julia usa escala diferente (3.0 vs 2.0 para otros)
+        const baseScale = selectedFractal === 'julia' ? 3.0 : 2.0;
+        const scale = baseScale / (canvas.width * (params.zoom || 1));
 
         const newCenter = {
             x: center.x - dx * scale,

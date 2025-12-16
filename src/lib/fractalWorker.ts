@@ -7,10 +7,12 @@ interface WorkerMessage {
   fractalType: string;
   iterations: number;
   zoom: number;
-  power: number;
   centerX: number;
   centerY: number;
   palette: string;
+  // Parámetros específicos de Julia
+  cReal?: number;
+  cImag?: number;
 }
 
 // Paletas de colores optimizadas (lookup tables)
@@ -76,7 +78,6 @@ function calculateMandelbrot(
   height: number,
   iterations: number,
   zoom: number,
-  power: number,
   centerX: number,
   centerY: number,
   palette: string
@@ -88,9 +89,99 @@ function calculateMandelbrot(
   const halfWidth = width / 2;
   const halfHeight = height / 2;
 
-  // Optimización: precalcular si es potencia entera
-  const isIntegerPower = Math.abs(power - Math.round(power)) < 0.01;
-  const intPower = Math.round(power);
+  for (let y = 0; y < height; y++) {
+    const cy = centerY + (y - halfHeight) * scale;
+    const rowOffset = y * width;
+
+    for (let x = 0; x < width; x++) {
+      const cx = centerX + (x - halfWidth) * scale;
+      let zx = 0, zy = 0, n = 0;
+
+      // z² optimizado
+      while (n < iterations) {
+        const zx2 = zx * zx;
+        const zy2 = zy * zy;
+        if (zx2 + zy2 > 4) break;
+        zy = 2 * zx * zy + cy;
+        zx = zx2 - zy2 + cx;
+        n++;
+      }
+
+      const i = (rowOffset + x) * 4;
+      const colorIdx = n * 3;
+      data[i] = colors[colorIdx];
+      data[i + 1] = colors[colorIdx + 1];
+      data[i + 2] = colors[colorIdx + 2];
+      data[i + 3] = 255;
+    }
+  }
+
+  return imgData;
+}
+
+function calculateJulia(
+  width: number,
+  height: number,
+  iterations: number,
+  zoom: number,
+  centerX: number,
+  centerY: number,
+  cReal: number,
+  cImag: number,
+  palette: string
+): ImageData {
+  const imgData = new ImageData(width, height);
+  const data = imgData.data;
+  const colors = buildPalette(palette, iterations);
+  const scale = 3.0 / (width * zoom); // Rango de -1.5 a 1.5
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+
+  for (let y = 0; y < height; y++) {
+    const rowOffset = y * width;
+
+    for (let x = 0; x < width; x++) {
+      // En Julia, z comienza en el punto del pixel, c es constante
+      let zx = centerX + (x - halfWidth) * scale;
+      let zy = centerY + (y - halfHeight) * scale;
+      let n = 0;
+
+      while (n < iterations) {
+        const zx2 = zx * zx;
+        const zy2 = zy * zy;
+        if (zx2 + zy2 > 4) break;
+        zy = 2 * zx * zy + cImag;
+        zx = zx2 - zy2 + cReal;
+        n++;
+      }
+
+      const i = (rowOffset + x) * 4;
+      const colorIdx = n * 3;
+      data[i] = colors[colorIdx];
+      data[i + 1] = colors[colorIdx + 1];
+      data[i + 2] = colors[colorIdx + 2];
+      data[i + 3] = 255;
+    }
+  }
+
+  return imgData;
+}
+
+function calculateBurningShip(
+  width: number,
+  height: number,
+  iterations: number,
+  zoom: number,
+  centerX: number,
+  centerY: number,
+  palette: string
+): ImageData {
+  const imgData = new ImageData(width, height);
+  const data = imgData.data;
+  const colors = buildPalette(palette, iterations);
+  const scale = 1.0 / (width * 0.5 * zoom);
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
 
   for (let y = 0; y < height; y++) {
     const cy = centerY + (y - halfHeight) * scale;
@@ -100,40 +191,66 @@ function calculateMandelbrot(
       const cx = centerX + (x - halfWidth) * scale;
       let zx = 0, zy = 0, n = 0;
 
-      if (isIntegerPower && intPower === 2) {
-        // Optimización especial para z² (el caso más común)
-        while (n < iterations) {
-          const zx2 = zx * zx;
-          const zy2 = zy * zy;
-          if (zx2 + zy2 > 4) break;
-          zy = 2 * zx * zy + cy;
-          zx = zx2 - zy2 + cx;
-          n++;
-        }
-      } else if (isIntegerPower && intPower === 3) {
-        // Optimización para z³
-        while (n < iterations) {
-          const zx2 = zx * zx;
-          const zy2 = zy * zy;
-          if (zx2 + zy2 > 4) break;
-          const newZx = zx * (zx2 - 3 * zy2) + cx;
-          zy = zy * (3 * zx2 - zy2) + cy;
-          zx = newZx;
-          n++;
-        }
-      } else {
-        // Caso general con coordenadas polares
-        while (n < iterations) {
-          const r2 = zx * zx + zy * zy;
-          if (r2 > 4) break;
-          const r = Math.sqrt(r2);
-          const theta = Math.atan2(zy, zx);
-          const rn = Math.pow(r, power);
-          const newTheta = theta * power;
-          zx = rn * Math.cos(newTheta) + cx;
-          zy = rn * Math.sin(newTheta) + cy;
-          n++;
-        }
+      // Burning Ship: z = (|Re(z)| + i|Im(z)|)² + c
+      while (n < iterations) {
+        const zx2 = zx * zx;
+        const zy2 = zy * zy;
+        if (zx2 + zy2 > 4) break;
+        // Tomar valor absoluto antes de la operación
+        const absZx = Math.abs(zx);
+        const absZy = Math.abs(zy);
+        zy = 2 * absZx * absZy + cy;
+        zx = absZx * absZx - absZy * absZy + cx;
+        n++;
+      }
+
+      const i = (rowOffset + x) * 4;
+      const colorIdx = n * 3;
+      data[i] = colors[colorIdx];
+      data[i + 1] = colors[colorIdx + 1];
+      data[i + 2] = colors[colorIdx + 2];
+      data[i + 3] = 255;
+    }
+  }
+
+  return imgData;
+}
+
+function calculateTricorn(
+  width: number,
+  height: number,
+  iterations: number,
+  zoom: number,
+  centerX: number,
+  centerY: number,
+  palette: string
+): ImageData {
+  const imgData = new ImageData(width, height);
+  const data = imgData.data;
+  const colors = buildPalette(palette, iterations);
+  const scale = 1.0 / (width * 0.5 * zoom);
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+
+  for (let y = 0; y < height; y++) {
+    const cy = centerY + (y - halfHeight) * scale;
+    const rowOffset = y * width;
+
+    for (let x = 0; x < width; x++) {
+      const cx = centerX + (x - halfWidth) * scale;
+      let zx = 0, zy = 0, n = 0;
+
+      // Tricorn: z = conj(z)² + c = (zx - i*zy)² + c
+      while (n < iterations) {
+        const zx2 = zx * zx;
+        const zy2 = zy * zy;
+        if (zx2 + zy2 > 4) break;
+        // El conjugado invierte el signo de la parte imaginaria
+        // (zx - i*zy)² = zx² - zy² - 2i*zx*zy
+        const newZx = zx2 - zy2 + cx;
+        zy = -2 * zx * zy + cy;  // Nota: signo negativo (conjugado)
+        zx = newZx;
+        n++;
       }
 
       const i = (rowOffset + x) * 4;
@@ -149,14 +266,31 @@ function calculateMandelbrot(
 }
 
 self.onmessage = (e: MessageEvent<WorkerMessage>) => {
-  const { type, width, height, fractalType, iterations, zoom, power, centerX, centerY, palette } = e.data;
+  const { type, width, height, fractalType, iterations, zoom, centerX, centerY, palette, cReal, cImag } = e.data;
 
-  if (type === 'render' && fractalType === 'mandelbrot') {
-    const imageData = calculateMandelbrot(width, height, iterations, zoom, power, centerX, centerY, palette);
-    // Enviar los datos como Uint8ClampedArray transferible
-    (self as unknown as Worker).postMessage(
-      { type: 'result', data: imageData.data, width, height },
-      [imageData.data.buffer]
-    );
+  if (type !== 'render') return;
+
+  let imageData: ImageData;
+
+  switch (fractalType) {
+    case 'mandelbrot':
+      imageData = calculateMandelbrot(width, height, iterations, zoom, centerX, centerY, palette);
+      break;
+    case 'julia':
+      imageData = calculateJulia(width, height, iterations, zoom, centerX, centerY, cReal ?? -0.7, cImag ?? 0.27, palette);
+      break;
+    case 'burning-ship':
+      imageData = calculateBurningShip(width, height, iterations, zoom, centerX, centerY, palette);
+      break;
+    case 'tricorn':
+      imageData = calculateTricorn(width, height, iterations, zoom, centerX, centerY, palette);
+      break;
+    default:
+      return;
   }
+
+  (self as unknown as Worker).postMessage(
+    { type: 'result', data: imageData.data, width, height },
+    [imageData.data.buffer]
+  );
 };
