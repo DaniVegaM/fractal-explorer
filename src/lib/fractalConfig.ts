@@ -32,8 +32,6 @@ export const fractals: Record<FractalType, FractalConfig> = {
         description: "Más iteraciones = más detalle. Afecta mucho al rendimiento." },
       { label: "Zoom", key: "zoom", min: 1, max: 100000, step: 1, default: 1,
         description: "Nivel de acercamiento. El zoom con rueda es más rápido." },
-      { label: "Suavizado", key: "smoothing", min: 0, max: 1, step: 0.1, default: 1,
-        description: "Elimina las 'bandas' de color para transiciones suaves." },
     ],
   },
   julia: {

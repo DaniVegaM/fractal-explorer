@@ -1,5 +1,5 @@
 // pages/HomePage.tsx
-import { useEffect, useRef, useState, MouseEvent, WheelEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type WheelEvent } from "react";
 import { Download, Info, ChevronRight } from "lucide-react";
 
 // Importa el componente de UI
@@ -12,15 +12,17 @@ import {
     type PaletteType,
 } from "../lib/fractalConfig";
 
-// Importa el motor de renderizado
+// Importa el motor de renderizado (fallback para otros fractales)
 import { renderFractal } from "../lib/fractalRenderer";
+
+// Web Worker para cálculos en paralelo
+import FractalWorker from "../lib/fractalWorker?worker";
 
 export default function HomePage() {
     // --- Estado ---
     const [selectedFractal, setSelectedFractal] = useState<FractalType>("mandelbrot");
     const [showInfo, setShowInfo] = useState(false);
     const [showControls, setShowControls] = useState(true);
-    const [isAnimating, setIsAnimating] = useState(false);
     const [selectedPalette, setSelectedPalette] = useState<PaletteType>('grayscale');
     const [params, setParams] = useState<Record<string, number>>(
         Object.fromEntries(
@@ -33,31 +35,148 @@ export default function HomePage() {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const isDragging = useRef(false);
     const lastMousePos = useRef({ x: 0, y: 0 });
+    const workerRef = useRef<Worker | null>(null);
+    const hiResTimeoutRef = useRef<number | null>(null);
 
-    // --- Lógica de Renderizado (useEffect) ---
+    // --- Inicializar Web Worker ---
+    useEffect(() => {
+        workerRef.current = new FractalWorker();
+        return () => {
+            workerRef.current?.terminate();
+        };
+    }, []);
+
+    // Canvas offscreen para evitar parpadeos
+    const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+    // --- Función de renderizado con Worker ---
+    const renderToCanvas = (
+        renderParams: Record<string, number>,
+        renderCenter: { x: number; y: number },
+        lowRes: boolean = false
+    ) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        if (!workerRef.current) {
+            renderFractal({
+                ctx, 
+                width: canvas.width, 
+                height: canvas.height,
+                fractalType: selectedFractal,
+                params: renderParams, 
+                center: renderCenter,
+                palette: selectedPalette,
+            });
+            return;
+        }
+
+        const scale = lowRes ? 0.35 : 1;
+        const renderWidth = Math.floor(canvas.width * scale);
+        const renderHeight = Math.floor(canvas.height * scale);
+        const iterations = lowRes ? Math.min(renderParams.iterations || 100, 50) : (renderParams.iterations || 100);
+
+        workerRef.current.onmessage = (e) => {
+            if (e.data.type === 'result') {
+                const { data, width: w, height: h } = e.data;
+                const imageData = new ImageData(new Uint8ClampedArray(data), w, h);
+                
+                if (lowRes) {
+                    // Para baja res: usar canvas offscreen y escalar directamente
+                    if (!offscreenCanvasRef.current) {
+                        offscreenCanvasRef.current = document.createElement('canvas');
+                    }
+                    const offscreen = offscreenCanvasRef.current;
+                    offscreen.width = w;
+                    offscreen.height = h;
+                    const offCtx = offscreen.getContext('2d')!;
+                    offCtx.putImageData(imageData, 0, 0);
+                    
+                    // Dibujar escalado al canvas principal
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'medium';
+                    ctx.drawImage(offscreen, 0, 0, canvas.width, canvas.height);
+                } else {
+                    ctx.putImageData(imageData, 0, 0);
+                }
+            }
+        };
+
+        workerRef.current.postMessage({
+            type: 'render',
+            width: renderWidth,
+            height: renderHeight,
+            fractalType: selectedFractal,
+            iterations,
+            zoom: renderParams.zoom || 1,
+            power: 2,
+            centerX: renderCenter.x,
+            centerY: renderCenter.y,
+            palette: selectedPalette,
+        });
+    };
+
+    // --- Programar renderizado de alta resolución (con debounce) ---
+    const scheduleHiResRender = (renderParams: Record<string, number>, renderCenter: { x: number; y: number }) => {
+        if (hiResTimeoutRef.current) {
+            clearTimeout(hiResTimeoutRef.current);
+        }
+        
+        hiResTimeoutRef.current = window.setTimeout(() => {
+            if (selectedFractal === 'mandelbrot') {
+                renderToCanvas(renderParams, renderCenter, false);
+            } else {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const ctx = canvas.getContext("2d");
+                if (!ctx) return;
+                renderFractal({
+                    ctx,
+                    width: canvas.width,
+                    height: canvas.height,
+                    fractalType: selectedFractal,
+                    params: renderParams,
+                    center: renderCenter,
+                    palette: selectedPalette,
+                });
+            }
+        }, 250);
+    };
+
+    // --- Renderizado inicial y cuando cambian parámetros (sin parpadeo) ---
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
 
-        // Ajusta el tamaño del canvas a su contenedor
         canvas.width = canvas.clientWidth;
         canvas.height = canvas.clientHeight;
 
-        // Delega todo el trabajo de dibujado al renderizador
-        renderFractal({
-            ctx,
-            width: canvas.width,
-            height: canvas.height,
-            fractalType: selectedFractal,
-            params,
-            center,
-            palette: selectedPalette,
-        });
+        // Solo renderizar alta calidad directamente (sin preview de baja res)
+        if (selectedFractal === 'mandelbrot') {
+            renderToCanvas(params, center, false);
+        } else {
+            renderFractal({
+                ctx,
+                width: canvas.width,
+                height: canvas.height,
+                fractalType: selectedFractal,
+                params,
+                center,
+                palette: selectedPalette,
+            });
+        }
 
-        // Se redibuja si cambian los params, el fractal, el centro o la paleta
-    }, [params, selectedFractal, center, selectedPalette]);
+        return () => {
+            if (hiResTimeoutRef.current) {
+                clearTimeout(hiResTimeoutRef.current);
+            }
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedFractal, selectedPalette]);
 
 
     // --- Manejadores de Lógica (Estado) ---
@@ -71,11 +190,18 @@ export default function HomePage() {
     };
 
     const handleParamChange = (key: string, value: number) => {
-        setParams((prev) => ({ ...prev, [key]: value }));
+        const newParams = { ...params, [key]: value };
+        setParams(newParams);
+        // Solo baja res mientras arrastra el slider, alta res cuando suelta
+        renderToCanvas(newParams, center, true);
     };
 
-    const toggleAnimation = () => {
-        setIsAnimating((prev) => !prev);
+    const handleParamChangeEnd = () => {
+        // Cancelar cualquier render pendiente y hacer alta res
+        if (hiResTimeoutRef.current) {
+            clearTimeout(hiResTimeoutRef.current);
+        }
+        renderToCanvas(params, center, false);
     };
 
     const handlePaletteChange = (palette: PaletteType) => {
@@ -91,14 +217,20 @@ export default function HomePage() {
         const maxZoom = zoomParamConfig?.max ?? 100000;
 
         newZoom = Math.max(minZoom, Math.min(newZoom, maxZoom));
-        handleParamChange('zoom', newZoom);
+        const newParams = { ...params, zoom: newZoom };
+        setParams(newParams);
+        // Solo baja res durante scroll, programar alta res después
+        renderToCanvas(newParams, center, true);
+        scheduleHiResRender(newParams, center);
     };
 
     const handleResetView = () => {
-        setCenter(fractals[selectedFractal].defaultCenter);
-        setParams(
-            Object.fromEntries(fractals[selectedFractal].params.map((p) => [p.key, p.default]))
-        );
+        const newCenter = fractals[selectedFractal].defaultCenter;
+        const newParams = Object.fromEntries(fractals[selectedFractal].params.map((p) => [p.key, p.default]));
+        setCenter(newCenter);
+        setParams(newParams);
+        // Render directo en alta calidad
+        renderToCanvas(newParams, newCenter, false);
     };
 
 
@@ -110,7 +242,14 @@ export default function HomePage() {
     };
 
     const handleMouseUp = () => {
-        isDragging.current = false;
+        if (isDragging.current) {
+            isDragging.current = false;
+            // Cancelar renders pendientes y hacer alta res
+            if (hiResTimeoutRef.current) {
+                clearTimeout(hiResTimeoutRef.current);
+            }
+            renderToCanvas(params, center, false);
+        }
     };
 
     const handleMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
@@ -122,17 +261,20 @@ export default function HomePage() {
 
         const scale = 1.0 / (canvas.width * 0.5 * (params.zoom || 1));
 
-        setCenter(prev => ({
-            x: prev.x - dx * scale,
-            y: prev.y - dy * scale,
-        }));
-
+        const newCenter = {
+            x: center.x - dx * scale,
+            y: center.y - dy * scale,
+        };
+        setCenter(newCenter);
         lastMousePos.current = { x: e.clientX, y: e.clientY };
+        
+        // Renderizar baja res mientras arrastra
+        renderToCanvas(params, newCenter, true);
     };
 
     const handleWheel = (e: WheelEvent<HTMLCanvasElement>) => {
         e.preventDefault();
-        const factor = e.deltaY < 0 ? 1.5 : 1 / 1.5; // Zoom In o Out
+        const factor = e.deltaY < 0 ? 1.5 : 1 / 1.5;
         handleZoom(factor);
     };
 
@@ -183,11 +325,10 @@ export default function HomePage() {
                         fractals={fractals}
                         selectedFractal={selectedFractal}
                         params={params}
-                        isAnimating={isAnimating}
                         selectedPalette={selectedPalette}
                         onFractalChange={handleFractalChange}
                         onParamChange={handleParamChange}
-                        onAnimateToggle={toggleAnimation}
+                        onParamChangeEnd={handleParamChangeEnd}
                         onPaletteChange={handlePaletteChange}
                         onZoomIn={() => handleZoom(1.5)}
                         onZoomOut={() => handleZoom(1 / 1.5)}
@@ -254,7 +395,6 @@ export default function HomePage() {
                     {/* Stats Overlay */}
                     <div className="absolute bottom-4 left-4 bg-neutral-800/90 backdrop-blur-sm border border-gray-700 rounded-lg px-4 py-2 text-sm">
                         <div className="flex items-center gap-4 text-gray-300">
-                            {/* <span>FPS: <span className="text-lime-400 font-mono">--</span></span> */}
                             <span>Zoom: <span className="text-lime-400 font-mono">{params.zoom?.toFixed(0) || 1}x</span></span>
                             <span>Iteraciones: <span className="text-lime-400 font-mono">{params.iterations || 0}</span></span>
                         </div>

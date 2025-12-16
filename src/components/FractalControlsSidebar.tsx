@@ -4,8 +4,6 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
-  Play,
-  Pause,
 } from "lucide-react";
 import type { FractalType, FractalConfig, PaletteType, FractalParam } from "../lib/fractalConfig";
 
@@ -23,11 +21,10 @@ interface FractalControlsSidebarProps {
   fractals: Record<FractalType, FractalConfig>;
   selectedFractal: FractalType;
   params: Record<string, number>;
-  isAnimating: boolean;
   selectedPalette: PaletteType;
   onFractalChange: (type: FractalType) => void;
   onParamChange: (key: string, value: number) => void;
-  onAnimateToggle: () => void;
+  onParamChangeEnd: () => void;
   onPaletteChange: (palette: PaletteType) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -38,11 +35,10 @@ export default function FractalControlsSidebar({
   fractals,
   selectedFractal,
   params,
-  isAnimating,
   selectedPalette,
   onFractalChange,
   onParamChange,
-  onAnimateToggle,
+  onParamChangeEnd,
   onPaletteChange,
   onZoomIn,
   onZoomOut,
@@ -97,6 +93,8 @@ export default function FractalControlsSidebar({
                 onChange={(e) =>
                   onParamChange(param.key, parseFloat(e.target.value))
                 }
+                onMouseUp={onParamChangeEnd}
+                onTouchEnd={onParamChangeEnd}
                 className="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-lime-400"
               />
               <p className="text-xs text-gray-500 mt-1 px-1">{param.description}</p>
@@ -155,21 +153,6 @@ export default function FractalControlsSidebar({
             Reiniciar Vista
           </button>
         </div>
-      </div>
-
-      {/* Animación */}
-      <div>
-        <button
-          onClick={onAnimateToggle}
-          className={`cursor-pointer w-full px-4 py-3 rounded-lg flex items-center justify-center gap-2 transition-all ${
-            isAnimating
-              ? "bg-lime-500 text-gray-950 font-semibold"
-              : "bg-neutral-800 hover:bg-neutral-700 text-white"
-          }`}
-        >
-          {isAnimating ? <Pause size={18} /> : <Play size={18} />}
-          {isAnimating ? 'Detener Animación' : 'Iniciar Animación'}
-        </button>
       </div>
     </div>
   );
