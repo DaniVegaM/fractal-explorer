@@ -367,6 +367,30 @@ export default function HomePage() {
                                     <li>• <span className="text-lime-400">Doble click</span>: Centrar y acercar</li>
                                 </ul>
                             </div>
+                            <div className="mt-4 pt-4 border-t border-gray-700">
+                                <h3 className="text-sm font-semibold text-purple-400 mb-2">
+                                    DESARROLLADO POR
+                                </h3>
+                                <div className="flex items-center gap-4 text-sm">
+                                    <span className="text-white font-medium">DaniVegaM</span>
+                                    <a 
+                                        href="https://www.danivegam.com/" 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-lime-400 hover:text-lime-300 transition-colors"
+                                    >
+                                        Portfolio
+                                    </a>
+                                    <a 
+                                        href="https://github.com/DaniVegaM" 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-lime-400 hover:text-lime-300 transition-colors"
+                                    >
+                                        GitHub
+                                    </a>
+                                </div>
+                            </div>
                         </div>
                     )}
 
