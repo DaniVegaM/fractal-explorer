@@ -207,6 +207,18 @@ export default function HomePage() {
         renderToCanvas(newParams, newCenter, false);
     };
 
+    const handleDownload = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        // Crear un link temporal para descargar
+        const link = document.createElement('a');
+        const zoom = params.zoom || 1;
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+        link.download = `${selectedFractal}_z${zoom.toFixed(0)}_${selectedPalette}_${timestamp}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    };
 
     // --- Manejadores de Interacción (Mouse) ---
 
@@ -282,6 +294,7 @@ export default function HomePage() {
                         <Info size={20} />
                     </button>
                     <button
+                        onClick={handleDownload}
                         className="cursor-pointer p-2 rounded-lg bg-neutral-700 hover:bg-neutral-600 text-lime-400 transition-colors"
                         title="Descargar imagen"
                     >
